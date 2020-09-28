@@ -1,5 +1,6 @@
 ﻿using Ganss.IO;
 using Mono.Cecil;
+using Mono.Cecil.Rocks;
 using Mono.Options;
 using System;
 using System.Collections.Generic;
@@ -83,41 +84,7 @@ namespace DllStrip
 
                 foreach (TypeDefinition type in module.Types)
                 {
-                    Logger.Trace($"Processing type '{type.Name}'", 2);
-
-                    foreach (MethodDefinition method in type.Methods)
-                    {
-                        Logger.Trace($"Clearing method '{method.Name}'", 3);
-
-                        method.Body?.Instructions.Clear();
-                    }
-
-                    foreach (PropertyDefinition property in type.Properties)
-                    {
-                        Logger.Trace($"Clearing property '{property.Name}'", 3);
-
-                        property.GetMethod?.Body?.Instructions.Clear();
-                        property.SetMethod?.Body?.Instructions.Clear();
-
-                        foreach (MethodDefinition method in property.OtherMethods)
-                        {
-                            method.Body?.Instructions.Clear();
-                        }
-                    }
-
-                    foreach (EventDefinition evt in type.Events)
-                    {
-                        Logger.Trace($"Clearing event '{evt.Name}'", 3);
-
-                        evt.AddMethod?.Body?.Instructions.Clear();
-                        evt.RemoveMethod?.Body?.Instructions.Clear();
-                        evt.InvokeMethod?.Body?.Instructions.Clear();
-
-                        foreach (MethodDefinition method in evt.OtherMethods)
-                        {
-                            method.Body?.Instructions.Clear();
-                        }
-                    }
+                    ClearType(type);
                 }
             }
 
@@ -126,6 +93,57 @@ namespace DllStrip
             Logger.Info($"Saving to '{outputFilePath}'...");
 
             assembly.Write(outputFilePath);
+        }
+
+        private static void ClearType(TypeDefinition type)
+        {
+            Logger.Trace($"Clearing type '{type.FullName}'", 2);
+
+            foreach (MethodDefinition constructor in type.GetConstructors())
+            {
+                Logger.Trace($"Clearing constructor '{constructor.Name}'", 3);
+
+                constructor.Body?.Instructions.Clear();
+            }
+
+            foreach (MethodDefinition method in type.Methods)
+            {
+                Logger.Trace($"Clearing method '{method.Name}'", 3);
+
+                method.Body?.Instructions.Clear();
+            }
+
+            foreach (PropertyDefinition property in type.Properties)
+            {
+                Logger.Trace($"Clearing property '{property.Name}'", 3);
+
+                property.GetMethod?.Body?.Instructions.Clear();
+                property.SetMethod?.Body?.Instructions.Clear();
+
+                foreach (MethodDefinition method in property.OtherMethods)
+                {
+                    method.Body?.Instructions.Clear();
+                }
+            }
+
+            foreach (EventDefinition evt in type.Events)
+            {
+                Logger.Trace($"Clearing event '{evt.Name}'", 3);
+
+                evt.AddMethod?.Body?.Instructions.Clear();
+                evt.RemoveMethod?.Body?.Instructions.Clear();
+                evt.InvokeMethod?.Body?.Instructions.Clear();
+
+                foreach (MethodDefinition method in evt.OtherMethods)
+                {
+                    method.Body?.Instructions.Clear();
+                }
+            }
+
+            foreach (TypeDefinition nestedType in type.NestedTypes)
+            {
+                ClearType(nestedType);
+            }
         }
 
         private class Resolver : BaseAssemblyResolver
