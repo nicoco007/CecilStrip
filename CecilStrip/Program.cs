@@ -116,6 +116,8 @@ namespace DllStrip
                 {
                     ClearType(type);
                 }
+
+                module.Resources.Clear();
             }
 
             string outputFilePath = Path.Join(outputFolder, Path.GetFileName(filePath));
