@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Abstractions;
+using System.Linq;
 
 namespace DllStrip
 {
@@ -14,6 +15,8 @@ namespace DllStrip
         static void Main(string[] args)
         {
             string outputFolder = Path.Join(Environment.CurrentDirectory, "out");
+            var resolve = new List<string>();
+            var exclusions = new List<string>();
 
             var options = new OptionSet
             {
@@ -22,7 +25,9 @@ namespace DllStrip
                     {
                         if (v != null) Logger.Verbosity++;
                     }
-                }
+                },
+                { "r|resolve=", "Additional resolve folders", r => resolve.Add(r) },
+                { "e|exclude=", "Excluded files", e => exclusions.Add(e) }
             };
 
             List<string> extras;
@@ -57,16 +62,41 @@ namespace DllStrip
 
             Logger.Trace($"Writing files to '{outputFolder}'", 1);
 
+            var excludedFiles = new HashSet<string>();
+
+            foreach (string exclusion in exclusions)
+            {
+                foreach (string file in Glob.ExpandNames(exclusion))
+                {
+                    excludedFiles.Add(file);
+                }
+            }
+
             foreach (string extra in extras)
             {
-                foreach (IFileSystemInfo file in Glob.Expand(extra))
+                foreach (string fileName in Glob.ExpandNames(extra))
                 {
-                    GenerateStrippedAssembly(file.FullName, outputFolder);
+                    if (excludedFiles.Contains(fileName))
+                    {
+                        Logger.Trace($"Excluding file '{fileName}'", 2);
+                        continue;
+                    }
+
+                    try
+                    {
+                        List<string> paths = new List<string>(resolve);
+                        paths.Add(Path.GetDirectoryName(fileName));
+                        GenerateStrippedAssembly(fileName, outputFolder, paths);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Error(ex);
+                    }
                 }
             }
         }
 
-        private static void GenerateStrippedAssembly(string filePath, string outputFolder)
+        private static void GenerateStrippedAssembly(string filePath, string outputFolder, IEnumerable<string> additionalResolvePaths)
         {
             Logger.Info($"Processing '{filePath}'...");
 
@@ -75,7 +105,7 @@ namespace DllStrip
                 ReadingMode = ReadingMode.Immediate,
                 InMemory = true,
                 ReadWrite = false,
-                AssemblyResolver = new Resolver(filePath)
+                AssemblyResolver = new Resolver(additionalResolvePaths)
             });
 
             foreach (ModuleDefinition module in assembly.Modules)
@@ -149,26 +179,27 @@ namespace DllStrip
         private class Resolver : BaseAssemblyResolver
         {
             private DefaultAssemblyResolver defaultResolver;
-            private string directory;
+            private IEnumerable<string> paths;
 
-            public Resolver(string path)
+            public Resolver(IEnumerable<string> paths)
             {
                 this.defaultResolver = new DefaultAssemblyResolver();
-                this.directory = Path.GetDirectoryName(path);
+                this.paths = paths;
             }
 
             public override AssemblyDefinition Resolve(AssemblyNameReference name)
             {
-                string file = Path.Combine(directory, name.Name + ".dll");
+                foreach (string directory in paths)
+                {
+                    string file = Path.Combine(directory, name.Name + ".dll");
 
-                if (File.Exists(file))
-                {
-                    return AssemblyDefinition.ReadAssembly(file);
+                    if (File.Exists(file))
+                    {
+                        return AssemblyDefinition.ReadAssembly(file);
+                    }
                 }
-                else
-                {
-                    return defaultResolver.Resolve(name);
-                }
+                
+                return defaultResolver.Resolve(name);
             }
         }
     }
